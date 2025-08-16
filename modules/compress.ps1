@@ -1,41 +1,44 @@
 <#
 .SYNOPSIS
-    Incident Response - Compression Module
+    Incident Response - Result Compression Module
 
 .DESCRIPTION
-    결과 디렉토리를 ZIP 파일로 압축하는 기능을 제공한다.
-    이후 무결성 보장을 위해 hashtools.ps1 모듈과 함께 사용될 수 있다.
+    수집 및 분석된 결과 디렉토리를 지정된 압축 형식으로 묶는다.
+    기본적으로 ZIP 포맷을 사용한다.
+
+.PARAMETER TargetDir
+    압축할 대상 디렉토리
+
+.PARAMETER Format
+    압축 형식 (현재 zip만 지원)
 #>
 
-# --------------------------------------------------------------------
-# ZIP 파일로 압축하기
-# --------------------------------------------------------------------
-function Compress-Results {
+function Invoke-Compress {
     param(
-        [Parameter(Mandatory=$true)][string]$SourceDir,
-        [Parameter(Mandatory=$true)][string]$OutputFile
+        [Parameter(Mandatory=$true)][string]$TargetDir,
+        [ValidateSet("zip")]
+        [string]$Format = "zip"
     )
 
-    if (-not (Test-Path $SourceDir)) {
-        Write-Host "[!] 압축할 디렉토리가 존재하지 않습니다: $SourceDir"
-        return $null
-    }
+    Write-Host "[Compress] 결과 압축을 시작합니다..."
+
+    # 압축 파일 이름
+    $parentDir = Split-Path $TargetDir -Parent
+    $folderName = Split-Path $TargetDir -Leaf
+    $zipPath = Join-Path $parentDir "$folderName.$Format"
 
     try {
-        # 기존 파일이 있다면 삭제
-        if (Test-Path $OutputFile) {
-            Remove-Item -Path $OutputFile -Force
+        if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
         }
 
-        # ZIP으로 압축
-        Compress-Archive -Path $SourceDir -DestinationPath $OutputFile -Force
-        Write-Host "[OK] 압축 완료: $OutputFile"
+        # Windows 기본 cmdlet 사용
+        if ($Format -eq "zip") {
+            Compress-Archive -Path $TargetDir -DestinationPath $zipPath -Force
+        }
 
-        return $OutputFile
-    }
-    catch {
-        Write-Host "[!] 압축 중 오류 발생: $SourceDir"
-        return $null
+        Write-Host "[Compress] 압축 완료: $zipPath"
+    } catch {
+        Write-Error "[Compress] 압축 실패: $_"
     }
 }
-

@@ -33,7 +33,7 @@ if (-Not (Test-Path $configPath)) {
     exit 1
 }
 
-$config = Get-Content $configPath | ConvertFrom-Json
+$config = Get-Content $configPath -Raw | ConvertFrom-Json
 
 # -----------------------------
 # 결과 디렉토리 생성
@@ -42,7 +42,7 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
 $resultDir = Join-Path $ScriptRoot $config.ResultDir
 $resultDir = Join-Path $resultDir $timestamp
 
-New-Item -ItemType Directory -Path $resultDir | Out-Null
+New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
 
 Write-Host "[Main] 결과 저장 경로: $resultDir"
 
@@ -57,11 +57,7 @@ if ($config.Collection.EnableVolatile -or $config.Collection.EnableNonVolatile) 
 # 해시 계산 및 검증 단계
 # -----------------------------
 if ($config.Hash.Algorithms.Count -gt 0) {
-    Invoke-HashTools -TargetDir $resultDir -Algorithms $config.Hash.Algorithms
-
-    if ($config.Hash.VerifyAfterCollection) {
-        Invoke-HashVerify -TargetDir $resultDir
-    }
+    Invoke-HashTools -TargetDir $resultDir -Algorithms $config.Hash.Algorithms -VerifyAfterCollection:($config.Hash.VerifyAfterCollection)
 }
 
 # -----------------------------
@@ -77,4 +73,3 @@ if ($config.Compression.Enable -eq $true) {
 }
 
 Write-Host "[Main] 작업이 완료되었습니다."
-
