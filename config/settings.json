@@ -1,0 +1,32 @@
+{
+  // 결과 저장 경로 (기본: 프로젝트 내 results/ 폴더)
+  "ResultDir": "../results",
+
+  // 외부 도구 경로 (Sysinternals, NirSoft 등)
+  // 빈 문자열("")로 두면 PATH에 등록된 도구를 사용
+  "ToolsPath": {
+    "Sysinternals": "C:/Tools/Sysinternals",
+    "NirSoft": "C:/Tools/NirSoft"
+  },
+
+  // 증거 수집 옵션
+  "Collection": {
+    "EnableVolatile": true,      // 휘발성 정보 수집 여부
+    "EnableNonVolatile": true,   // 비휘발성 정보 수집 여부
+    "IncludeRegistry": true,     // 레지스트리 Hive 백업 여부
+    "IncludeEventLogs": true     // 이벤트 로그 백업 여부
+  },
+
+  // 결과 압축 옵션
+  "Compression": {
+    "Enable": true,              // 실행 후 결과 자동 압축 여부
+    "Format": "zip"              // 지원: zip
+  },
+
+  // 해시 옵션
+  "Hash": {
+    "Algorithms": [ "MD5", "SHA256" ],  // 계산할 해시 알고리즘
+    "VerifyAfterCollection": true       // 수집 완료 후 무결성 검증 여부
+  }
+}
+
