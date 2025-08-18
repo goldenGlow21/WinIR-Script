@@ -1,75 +1,110 @@
 <#
-.SYNOPSIS
-    Windows Incident Response Main Script
-
-.DESCRIPTION
-    이 스크립트는 설정 파일(config/settings.json)을 불러와
-    모듈(collect, hashtools, analyze, compress)을 실행하는
-    메인 드라이버 역할을 한다.
+ [main.ps1]
+ - Windows-IR-Toolkit 자동 실행 런처
+ - 관리자 권한 전제
+ - 실행 시 모든 모듈 자동 수행
+ - 모든 .txt / .evtx 결과 수집 후 ZIP 생성
 #>
 
-# -----------------------------
-# 초기 설정
-# -----------------------------
+param(
+    [string]$OutputRoot = (Join-Path -Path $PSScriptRoot -ChildPath "output")
+)
+
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# 스크립트 위치 기준 경로 설정
-$ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Set-Location $ScriptRoot
+# ─────────── 공통 로깅 불러오기 ───────────
+. "$PSScriptRoot\utils\Write-Log.ps1"
 
-# 모듈 경로 로드
-Import-Module "$ScriptRoot/modules/collect.ps1"   -Force
-Import-Module "$ScriptRoot/modules/analyze.ps1"   -Force
-Import-Module "$ScriptRoot/modules/utils.ps1"     -Force
-Import-Module "$ScriptRoot/modules/hashtools.ps1" -Force
-Import-Module "$ScriptRoot/modules/compress.ps1"  -Force
+function Test-Admin {
+    $current = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($current)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+        throw "Administrator privileges are required."
+    }
+}
 
-# -----------------------------
-# 설정 파일 불러오기
-# -----------------------------
-$configPath = "$ScriptRoot/config/settings.json"
-if (-Not (Test-Path $configPath)) {
-    Write-Error "설정 파일(config/settings.json)을 찾을 수 없습니다."
+# 세션 단위로만 logs, artifacts 생성
+function New-SessionFolder {
+    param([string]$Root)
+    $stamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+    $session = Join-Path $Root "session_$stamp"
+
+    if (-not (Test-Path $session)) { [void](New-Item -Path $session -ItemType Directory) }
+    [void](New-Item -Path (Join-Path $session "logs") -ItemType Directory)
+    [void](New-Item -Path (Join-Path $session "artifacts") -ItemType Directory)
+
+    return $session
+}
+
+function Invoke-Module {
+    param(
+        [Parameter(Mandatory)] [string]$ScriptName,
+        [Parameter(Mandatory)] [string]$SessionDir
+    )
+    $modulePath = Join-Path -Path (Join-Path $PSScriptRoot "modules") -ChildPath $ScriptName
+    $logFile = Join-Path $SessionDir "logs\main.log"
+
+    if (-not (Test-Path $modulePath)) {
+        Write-Log -Message "Module not found: $ScriptName" -Level ERROR -LogFile $logFile
+        return
+    }
+    Write-Log -Message "Running $ScriptName ..." -Level INFO -LogFile $logFile
+    try {
+        & $modulePath -OutputDir $SessionDir
+        Write-Log -Message "Completed: $ScriptName" -Level INFO -LogFile $logFile
+    } catch {
+        Write-Log -Message ("Failed: $ScriptName | " + $_.Exception.Message) -Level ERROR -LogFile $logFile
+    }
+}
+
+# ─────────── Entry ───────────
+try {
+    Test-Admin
+    if (-not (Test-Path $OutputRoot)) { [void](New-Item -Path $OutputRoot -ItemType Directory) }
+    $sessionDir = New-SessionFolder -Root $OutputRoot
+    Write-Host "[*] Output session: $sessionDir" -ForegroundColor Cyan
+} catch {
+    Write-Host "[X] Startup failed: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 
-$config = Get-Content $configPath -Raw | ConvertFrom-Json
+# ─────────── 모든 모듈 실행 ───────────
+$modules = @(
+    "Collect-SystemInfo.ps1",
+    "Collect-EventLogs.ps1",
+    "Collect-Network.ps1",
+    "Collect-Processes.ps1",
+    "Collect-Persistence.ps1",
+    "Collect-Registry.ps1",
+    "Collect-Files.ps1"
+)
 
-# -----------------------------
-# 결과 디렉토리 생성
-# -----------------------------
-$timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-$resultDir = Join-Path $ScriptRoot $config.ResultDir
-$resultDir = Join-Path $resultDir $timestamp
-
-New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
-
-Write-Host "[Main] 결과 저장 경로: $resultDir"
-
-# -----------------------------
-# 증거 수집 단계
-# -----------------------------
-if ($config.Collection.EnableVolatile -or $config.Collection.EnableNonVolatile) {
-    Invoke-Collect -ResultDir $resultDir -ToolsPath $config.ToolsPath.Sysinternals
+foreach ($m in $modules) {
+    Invoke-Module -ScriptName $m -SessionDir $sessionDir
 }
 
-# -----------------------------
-# 해시 계산 및 검증 단계
-# -----------------------------
-if ($config.Hash.Algorithms.Count -gt 0) {
-    Invoke-HashTools -TargetDir $resultDir -Algorithms $config.Hash.Algorithms -VerifyAfterCollection:($config.Hash.VerifyAfterCollection)
+# ─────────── ZIP 압축 ───────────
+try {
+    $timestamp = Split-Path $sessionDir -Leaf
+    $resultDir = Join-Path $PSScriptRoot "result"
+    if (-not (Test-Path $resultDir)) { [void](New-Item -Path $resultDir -ItemType Directory) }
+
+    $zipName = "Triage_$timestamp.zip"
+    $zipPath = Join-Path $resultDir $zipName
+
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
+    # logs/ 폴더 안의 모든 txt, evtx 파일 압축 (Filter 방식)
+    $files  = @(Get-ChildItem -Path (Join-Path $sessionDir "logs") -Filter *.txt -File)
+    $files += @(Get-ChildItem -Path (Join-Path $sessionDir "logs") -Filter *.evtx -File)
+
+    if ($files.Count -gt 0) {
+        Compress-Archive -Path $files.FullName -DestinationPath $zipPath -Force
+        Write-Host "[+] Results archived: $zipPath" -ForegroundColor Green
+    } else {
+        Write-Host "[!] No .txt or .evtx files found to archive." -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "[X] Failed to create archive: $($_.Exception.Message)" -ForegroundColor Red
 }
-
-# -----------------------------
-# 1차 분석 단계
-# -----------------------------
-Invoke-Analyze -ResultDir $resultDir
-
-# -----------------------------
-# 결과 압축 단계
-# -----------------------------
-if ($config.Compression.Enable -eq $true) {
-    Invoke-Compress -TargetDir $resultDir -Format $config.Compression.Format
-}
-
-Write-Host "[Main] 작업이 완료되었습니다."

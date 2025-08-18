@@ -1,103 +1,119 @@
-# WinIR-Script
+# Windows-IR-Toolkit  
+Windows Incident Response (IR) Script 
 
-Windows 시스템 침해사고(Incident Response, IR) 발생 시, 
-증거 수집 및 1차 분석을 자동화하기 위한 PowerShell 기반 스크립트 툴킷이다.  
-본 프로젝트는 ***KISA 침해사고 대응 매뉴얼***에서 제시된 절차를 참고하여 작성되었으며,  
-실습 및 실제 환경에서 빠른 대응을 지원하기 위한 목적으로 설계되었다.  
+Based on an administrator-privileged PowerShell script, it automatically collects key system forensic artifacts and provides the results in a compressed format.  
 
 ---
 
-## 프로젝트 구조
+## Features  
+
+### System Information Collection  
+- OS, Hostname, Boot time, CPU, Memory, Network Interfaces, Hotfixes, Local Users  
+
+### Event Logs Collection  
+- System, Application, Security logs (EVTX export)  
+- Security highlights (Event ID 4624, 4625, 7045)  
+
+### Network Forensics Collection  
+- Netstat, TCP connections, Firewall rules, ARP table, DNS cache, IP configuration  
+
+### Processes & Services Collection  
+- Running processes with path and signature  
+- Installed services with status  
+
+### Persistence Artifacts Collection  
+- Auto-run registry keys, Scheduled tasks, WMI event subscriptions  
+
+### Registry & User Artefacts Collection  
+- RunMRU, RecentDocs, USBSTOR history, UserAssist, Shell folders  
+
+### File Triage & Hashing  
+- Recent files from Temp/AppData/Downloads  
+- MD5 & SHA256 hash  
+- Copy suspicious files into `artifacts/`  
+
+---
+
+## Project Structure  
 
 ```
-WinIR-Script/
-│
-├─ README.md # 프로젝트 개요 및 실행 방법
-├─ main.ps1 # 메인 실행 스크립트 (전체 실행 흐름 제어)
-│
-├─ modules/ # 모듈화된 PowerShell 스크립트
-│ ├─ collect.ps1 # 증거 수집 모듈
-│ ├─ analyze.ps1 # 1차 분석 모듈
-│ ├─ utils.ps1 # 공통 함수 (로그 기록, 경로 처리 등)
-│ ├─ hashtools.ps1 # 해시 계산/검증
-│ └─ compress.ps1 # 결과 압축
-│
-├─ config/
-│ └─ settings.json # 외부 툴 경로, 결과 저장 경로 등 환경 설정
-│
-└─ results/
-  └─ (실행 시 생성되는 YYYYMMDD_HHMM 폴더들)
-```
-
----
-
-## 요구사항
-
-- Windows 10 이상
-- PowerShell 5.1 이상 (기본 포함)
-- **관리자 권한**으로 실행 필요
-- 외부 툴 (Sysinternals, NirSoft) 설치 필요
-
----
-
-## 외부 툴 설치 안내
-
-본 프로젝트는 다음 외부 툴을 활용한다.  
-저작권 문제로 저장소에 포함하지 않으므로 직접 설치해야 한다.
-
-### 1. Sysinternals Suite
-
-- 다운로드: [https://learn.microsoft.com/en-us/sysinternals/downloads/sysinternals-suite](https://learn.microsoft.com/en-us/sysinternals/downloads/sysinternals-suite)
-- 권장 경로: `C:\Tools\Sysinternals`
-
-### 2. NirSoft Utilities
-
-- LastActivityView: [https://www.nirsoft.net/utils/computer_activity_view.html](https://www.nirsoft.net/utils/computer_activity_view.html)
-- NetResView: [https://www.nirsoft.net/utils/netresview.html](https://www.nirsoft.net/utils/netresview.html)
-- 권장 경로: `C:\Tools\NirSoft`
-
-### 3. PATH 등록 (선택)
-
-- 환경 변수 `PATH`에 위 경로들을 추가하면, 스크립트가 자동으로 해당 툴을 호출할 수 있다.  
-- 등록하지 않는 경우, `config/settings.json`에서 직접 툴 경로를 지정해야 한다.
-
----
-
-## 실행 방법
-
-### 1. PATH 등록 후 실행
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\main.ps1
-```
-
-### 2. 툴 경로를 직접 지정하여 실행
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\main.ps1 -ToolsPath "C:\Tools"
+Windows-IR-Toolkit/  
+│  
+├─ main.ps1                # Entry point (auto-run all modules)  
+├─ README.md               # Documentation  
+│  
+├─ modules/                # Forensic collection modules  
+│  ├─ Collect-SystemInfo.ps1  
+│  ├─ Collect-EventLogs.ps1  
+│  ├─ Collect-Network.ps1  
+│  ├─ Collect-Processes.ps1  
+│  ├─ Collect-Persistence.ps1  
+│  ├─ Collect-Registry.ps1  
+│  └─ Collect-Files.ps1  
+│  
+├─ utils/                  # Common functions  
+│  └─ Write-Log.ps1  
+│  
+├─ output/                 # Raw collection results (per session)  
+│  └─ session_YYYYMMDD_HHMMSS/  
+│     ├─ logs/.txt  
+│     ├─ logs/.evtx  
+│     └─ artifacts/*  
+│  
+└─ result/                 # Compressed triage packages  
+   └─ Triage_session_YYYYMMDD_HHMMSS.zip  
 ```
 
 ---
 
-## 출력 결과
+## Usage  
 
-실행 시, results/YYYYMMDD_HHMM/ 디렉토리가 자동 생성된다.
-주요 결과물은 다음과 같다:
+1. Run PowerShell in Administrator privilege.  
+2. Temporarily relax the execution policy.
 
-- collect.log → 증거 수집 로그
-- analyze_report.txt → 1차 분석 결과
-- registry/ → 레지스트리 hive 백업
-- logs/ → 이벤트 로그 백업
-- package.zip → 최종 압축본
-- package.zip.sha256 → 무결성 검증 해시값
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass  
 
-## 참고 문서
+3. Run `main.ps1`
 
-- docs/DESIGN.md : 모듈 설계 및 실행 흐름
-- docs/TOOLS.md : 외부 툴 상세 설치 가이드
+> .\main.ps1  
 
-## 주의 사항
+---
 
-본 스크립트는 실습 및 연구 목적으로 작성되었다.
-실제 사고 대응 시에는 반드시 조직의 보안 정책과 절차에 따라 활용해야 한다.
-수집된 결과물에는 개인정보 및 민감한 데이터가 포함될 수 있으므로 적절한 보관/처리가 필요하다.
+## Workflow  
+
+- When `main.ps1` is executed, a new session folder is created under `output/`.  
+- All modules are executed sequentially, and the results are saved in `logs/` and `artifacts/`.  
+- The `.txt` and `.evtx` files in `logs/` are compressed into `Triage_session_timestamp.zip` under `result/`.  
+
+---
+
+## Output Example  
+
+```
+output/  
+└─ session_YYYYMMDD_HHMMSS/  
+   ├─ logs/  
+   │  ├─ systeminfo.txt  
+   │  ├─ SecurityHighlights.txt  
+   │  ├─ network_info.txt  
+   │  ├─ processes.txt  
+   │  ├─ services.txt  
+   │  ├─ persistence.txt  
+   │  ├─ registry_artifacts.txt  
+   │  ├─ file_triage.txt  
+   │  └─ SecurityEvents.evtx  
+   └─ artifacts/  
+      ├─ suspicious1.exe  
+      └─ suspicious2.dll  
+  
+result/  
+└─ Triage_session_20250818_153045.zip  
+```
+
+---
+
+## Requirements  
+
+- Windows PowerShell 5.1 or higher, or PowerShell 7 or higher  
+- Must be run with administrator privileges  
+- No internet connection required (all commands are executed locally)  
